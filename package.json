@@ -70,7 +70,8 @@
     "electron": "cross-env NODE_ENV=dev nodemon --exec \"npx electron .\"",
     "build": "electron-builder",
     "build-win": "electron-builder --win",
-    "package-win": "electron-packager . FikraPOS --overwrite --asar=false --platform=win32 --arch=x64 --icon=assets/images/icon.ico --prune=true --out=release-builds --version-string.CompanyName=\"Fikra Software\" --version-string.FileDescription=\"Fikra POS System\" --version-string.ProductName=\"Fikra POS\"",
+    "package-win": "electron-packager . FikraPOS --overwrite --asar=false --platform=win32 --arch=x64 --icon=assets/icons/win/icon.ico --prune=true --out=release-builds --version-string.CompanyName=\"Fikra Software\" --version-string.FileDescription=\"Fikra POS System\" --version-string.ProductName=\"Fikra POS\"",
+    "package-win-no-icon": "electron-packager . FikraPOS --overwrite --asar=false --platform=win32 --arch=x64 --prune=true --out=release-builds --version-string.CompanyName=\"Fikra Software\" --version-string.FileDescription=\"Fikra POS System\" --version-string.ProductName=\"Fikra POS\"",
     "create-installer-win": "node installers/windows/createinstaller.js"
   },
   "browserslist": {
