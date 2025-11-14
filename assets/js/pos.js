@@ -62,6 +62,11 @@ let by_till = 0;
 let by_user = 0;
 let by_status = 1;
 
+// Helper function to safely get currency symbol
+function getCurrencySymbol() {
+    return (settings && settings.symbol) ? settings.symbol : '';
+}
+
 $(function () {
 
     function cb(start, end) {
@@ -161,10 +166,17 @@ if (auth == undefined) {
         loadCategories();
         loadProducts();
         loadCustomers();
+        
+        // Initialize client features if the function exists
+        if (typeof initializeClientFeatures === 'function') {
+            setTimeout(function() {
+                initializeClientFeatures();
+            }, 500);
+        }
 
 
         if (settings && settings.symbol) {
-            $("#price_curr, #payment_curr, #change_curr").text(settings.symbol);
+            $("#price_curr, #payment_curr, #change_curr").text(getCurrencySymbol());
         }
 
 
@@ -259,7 +271,7 @@ if (auth == undefined) {
                                         <div class="name" id="product_name">${item.name}</div> 
                                         <span class="sku">${item.sku}</span>
                                         <span class="stock">STOCK </span><span class="count">${item.stock == 1 ? item.quantity : 'N/A'}</span></div>
-                                        <sp class="text-success text-center"><b data-plugin="counterup">${item.price + " " + settings.symbol}</b> </sp>
+                                        <sp class="text-success text-center"><b data-plugin="counterup">${item.price + " " + getCurrencySymbol()}</b> </sp>
                             </div>
                         </div>`;
                     $('#parent').append(item_info);
@@ -471,14 +483,20 @@ if (auth == undefined) {
                 ctotalProfit += data.quantity * data.profit;
             });
 
-            //total = total - $("#inputDiscount").val();
-            $('#price').text(total.toFixed(2) + " " + settings.symbol);
-
-            subTotal = total;
-
-            if ($("#inputDiscount").val() >= total) {
+            subTotal = total; // Store subtotal before discount
+            
+            // Apply discount
+            let discount = parseFloat($("#inputDiscount").val()) || 0;
+            
+            if (discount >= total) {
                 $("#inputDiscount").val(0);
+                discount = 0;
             }
+            
+            // Calculate total after discount
+            total = total - discount;
+
+            $('#price').text(total.toFixed(2) + " " + getCurrencySymbol());
 
             if (settings.charge_tax) {
                 totalVat = ((total * vat) / 100);
@@ -489,9 +507,9 @@ if (auth == undefined) {
                 grossTotal = total;
             }
 
-            orderTotal = total;
+            orderTotal = total; // This is now the total AFTER discount
 
-            // $("#gross_price").text(grossTotal.toFixed(2) + " " + settings.symbol);
+            // $("#gross_price").text(grossTotal.toFixed(2) + " " + getCurrencySymbol());
             $("#payablePrice").val(total);
         };
 
@@ -671,22 +689,40 @@ if (auth == undefined) {
 
             cart.forEach(item => {
 
-                items += "<tr><td>" + item.product_name + "</td><td>" + item.quantity + "</td><td>" + parseFloat(item.price).toFixed(2) + " " + settings.symbol + "</td></tr>";
+                items += "<tr><td>" + item.product_name + "</td><td>" + item.quantity + "</td><td>" + parseFloat(item.price).toFixed(2) + " " + getCurrencySymbol() + "</td></tr>";
 
             });
 
             let currentTime = new Date(moment());
 
-            //let discount = $("#inputDiscount").val();
-            let discount = 0;
+            let discount = parseFloat($("#inputDiscount").val()) || 0;
             let customer = JSON.parse($("#customer").val());
+            
+            // Get selected client (new feature)
+            let client = null;
+            if (typeof getSelectedClient === 'function') {
+                client = getSelectedClient();
+            }
+            
             let date = moment(currentTime).format("YYYY-MM-DD HH:mm:ss");
-            let paid = $("#payment").val() == "" ? "" : parseFloat($("#payment").val()).toFixed(2);
-            let change = $("#change").text() == "" ? "" : parseFloat($("#change").text()).toFixed(2);
+            let paid = $("#payment").val() == "" ? "0" : parseFloat($("#payment").val()).toFixed(2);
+            let change = $("#change").text() == "" ? "0" : parseFloat($("#change").text()).toFixed(2);
             let refNumber = $("#refNumber").val();
             let orderNumber = holdOrder;
             let type = "";
             let tax_row = "";
+            
+            // Determine transaction status based on payment
+            let transactionStatus = status;
+            let paidAmount = parseFloat(paid);
+            let totalAmount = parseFloat(orderTotal);
+            
+            // If partial payment or pay later, set status to 0 (unpaid/partial)
+            if (paidAmount < totalAmount && paidAmount >= 0) {
+                transactionStatus = 0;
+            } else if (paidAmount >= totalAmount) {
+                transactionStatus = 1; // Fully paid
+            }
 
 
             switch (paymentType) {
@@ -702,21 +738,40 @@ if (auth == undefined) {
             }
 
 
-            if (paid != "") {
+            if (paid != "" && parseFloat(paid) > 0) {
+                let remaining = totalAmount - paidAmount;
                 payment = `<tr>
                         <td>Paid</td>
                         <td>:</td>
-                        <td>${paid + " " + settings.symbol}</td>
+                        <td>${paid + " " + getCurrencySymbol()}</td>
                     </tr>
-                    <tr>
+                    ${remaining > 0 ? `<tr>
+                        <td>Remaining</td>
+                        <td>:</td>
+                        <td>${remaining.toFixed(2) + " " + getCurrencySymbol()}</td>
+                    </tr>` : `<tr>
                         <td>Change</td>
                         <td>:</td>
-                        <td>${Math.abs(change).toFixed(2) + " " + settings.symbol}</td>
-                    </tr>
+                        <td>${Math.abs(change).toFixed(2) + " " + getCurrencySymbol()}</td>
+                    </tr>`}
                     <tr>
                         <td>Method</td>
                         <td>:</td>
                         <td>${type}</td>
+                    </tr>`
+            } else if (parseFloat(paid) === 0 && client && client._id !== '0') {
+                payment = `<tr>
+                        <td colspan="3" style="color: red; text-align: center;"><strong>Pay Later - مدين</strong></td>
+                    </tr>
+                    <tr>
+                        <td>Client</td>
+                        <td>:</td>
+                        <td>${client.name}</td>
+                    </tr>
+                    <tr>
+                        <td>Amount Due</td>
+                        <td>:</td>
+                        <td>${totalAmount.toFixed(2) + " " + getCurrencySymbol()}</td>
                     </tr>`
             }
 
@@ -726,7 +781,7 @@ if (auth == undefined) {
                 tax_row = `<tr>
                     <td>Vat(${settings.percentage})% </td>
                     <td>:</td>
-                    <td>${parseFloat(totalVat).toFixed(2)} ${settings.symbol}</td>
+                    <td>${parseFloat(totalVat).toFixed(2)} ${getCurrencySymbol()}</td>
                 </tr>`;
             }
 
@@ -760,6 +815,14 @@ if (auth == undefined) {
             }
 
 
+            // Determine client name for receipt
+            let clientName = 'عميل عابر';
+            if (client && client._id !== '0') {
+                clientName = client.name;
+            } else if (customer && customer != 0) {
+                clientName = customer.name;
+            }
+            
             receipt = `<div style="font-size: 10px;">                            
         <p style="text-align: center;">
         ${settings.img == "" ? settings.img : '<img style="max-width: 50px;max-width: 100px;" src ="' + img_path + settings.img + '" /><br>'}
@@ -774,7 +837,7 @@ if (auth == undefined) {
             <p>
             رقم الطلب : ${orderNumber} <br>
             الرقم المرجعي : ${refNumber == "" ? orderNumber : refNumber} <br>
-            العميل : ${customer == 0 ? 'عميل عابر' : customer.name} <br>
+            العميل : ${clientName} <br>
             الكاشير : ${user.fullname} <br>
             التاريخ : ${date}<br>
             </p>
@@ -795,12 +858,12 @@ if (auth == undefined) {
             <tr>                        
                 <td><b>Subtotal</b></td>
                 <td>:</td>
-                <td><b>${subTotal.toFixed(2)} ${settings.symbol}</b></td>
+                <td><b>${subTotal.toFixed(2)} ${getCurrencySymbol()}</b></td>
             </tr>
             <tr>
                 <td>Discount</td>
                 <td>:</td>
-                <td>${discount > 0 ? settings.symbol + parseFloat(discount).toFixed(2) : ''}</td>
+                <td>${discount > 0 ? getCurrencySymbol() + parseFloat(discount).toFixed(2) : ''}</td>
             </tr>
             
             ${tax_row}
@@ -809,7 +872,7 @@ if (auth == undefined) {
                 <td><h3>Total</h3></td>
                 <td><h3>:</h3></td>
                 <td>
-                    <h3>${parseFloat(orderTotal).toFixed(2)} ${settings.symbol}</h3>
+                    <h3>${parseFloat(orderTotal).toFixed(2)} ${getCurrencySymbol()}</h3>
                 </td>
             </tr>
             ${payment == 0 ? '' : payment}
@@ -846,7 +909,8 @@ if (auth == undefined) {
                 ref_number: refNumber,
                 discount: discount,
                 customer: customer,
-                status: status,
+                client: client,  // New: client information
+                status: transactionStatus,  // Updated: use calculated status
                 subtotal: parseFloat(subTotal).toFixed(2),
                 tax: totalVat,
                 order_type: 1,
@@ -858,10 +922,12 @@ if (auth == undefined) {
                 paid: paid,
                 change: change,
                 _id: orderNumber,
-                till: platform.till,
-                mac: platform.mac,
+                till: platform ? platform.till : 1,
+                mac: platform ? platform.mac : '',
                 user: user.fullname,
-                user_id: user._id
+                user_id: user._id,
+                isPartialPayment: paidAmount > 0 && paidAmount < totalAmount,  // New: partial payment flag
+                isPayLater: paidAmount === 0 && client && client._id !== '0'  // New: pay later flag
             }
 
 
@@ -873,6 +939,28 @@ if (auth == undefined) {
                 cache: false,
                 processData: false,
                 success: function (data) {
+                    
+                    // Update client balance if applicable
+                    if (client && client._id !== '0' && (paidAmount < totalAmount || paidAmount === 0)) {
+                        let purchaseData = {
+                            total: totalAmount,
+                            paid: paidAmount,
+                            transactionId: orderNumber
+                        };
+                        
+                        $.ajax({
+                            url: api + 'clients/client/' + client._id + '/purchase',
+                            type: 'POST',
+                            data: JSON.stringify(purchaseData),
+                            contentType: 'application/json',
+                            success: function() {
+                                // Reload clients to update balances
+                                if (typeof loadClients === 'function') {
+                                    loadClients();
+                                }
+                            }
+                        });
+                    }
 
                     cart = [];
                     $('#viewTransaction').html('');
@@ -880,12 +968,23 @@ if (auth == undefined) {
                     $('#orderModal').modal('show');
                     loadProducts();
                     loadCustomers();
+                    
+                    // Reload clients if the function exists
+                    if (typeof loadClients === 'function') {
+                        loadClients();
+                    }
+                    
                     $(".loading").hide();
                     $("#dueModal").modal('hide');
                     $("#paymentModel").modal('hide');
                     $(this).getHoldOrders();
                     $(this).getCustomerOrders();
                     $(this).renderTable(cart);
+                    
+                    // Reset payment checkboxes
+                    $('#partialPayment').prop('checked', false);
+                    $('#payLater').prop('checked', false);
+                    $('#remainingBalance').hide();
 
                 }, error: function (data) {
                     $(".loading").hide();
@@ -898,6 +997,7 @@ if (auth == undefined) {
             $("#refNumber").val('');
             $("#change").text('');
             $("#payment").val('');
+            $("#inputDiscount").val('');
 
         }
 
@@ -1124,7 +1224,8 @@ if (auth == undefined) {
         })
 
 
-        $("#confirmPayment").hide();
+        // Don't hide confirm payment button by default anymore
+        // $("#confirmPayment").hide();
 
         $("#cardInfo").hide();
 
@@ -1134,10 +1235,32 @@ if (auth == undefined) {
 
 
         $("#confirmPayment").on('click', function () {
-            if ($('#payment').val() == "") {
+            let paymentValue = $('#payment').val();
+            let totalValue = parseFloat($('#payablePrice').val());
+            let paymentAmount = parseFloat(paymentValue) || 0;
+            
+            // Check if it's a pay later scenario
+            let isPayLaterChecked = $('#payLater').is(':checked');
+            let isPartialPaymentChecked = $('#partialPayment').is(':checked');
+            let clientId = $('#clientSelect').val();
+            
+            // Allow pay later if client is selected
+            if (isPayLaterChecked && clientId !== '0') {
+                $(this).submitDueOrder(1);
+                return;
+            }
+            
+            // Allow partial payment if client is selected and amount is greater than 0
+            if (isPartialPaymentChecked && clientId !== '0' && paymentAmount > 0 && paymentAmount < totalValue) {
+                $(this).submitDueOrder(1);
+                return;
+            }
+            
+            // Original validation for full payment
+            if (paymentValue == "" || paymentAmount === 0) {
                 Swal.fire(
-                    'Nope!',
-                    'Please enter the amount that was paid!',
+                    'تحذير!',
+                    'الرجاء إدخال المبلغ المدفوع أو اختيار دفع لاحق!',
                     'warning'
                 );
             }
@@ -1508,7 +1631,7 @@ if (auth == undefined) {
                     user_list += `<tr>
             <td>${user.fullname}</td>
             <td>${user.username}</td>
-            <td class="${class_name}">${state.length > 0 ? state[0] : ''} <br><span style="font-size: 11px;"> ${state.length > 0 ? moment(state[1]).format('hh:mm A DD MMM YYYY') : ''}</span></td>
+            <td class="${class_name}">${state.length > 0 ? state[0] : ''} <br><span style="font-size: 11px;"> ${state.length > 0 && state[1] ? moment(new Date(state[1])).format('hh:mm A DD MMM YYYY') : ''}</span></td>
             <td>${user._id == 1 ? '<span class="btn-group"><button class="btn btn-dark"><i class="fa fa-edit"></i></button><button class="btn btn-dark"><i class="fa fa-trash"></i></button></span>' : '<span class="btn-group"><button onClick="$(this).editUser(' + index + ')" class="btn btn-warning"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteUser(' + user._id + ')" class="btn btn-danger"><i class="fa fa-trash"></i></button></span>'}</td></tr>`;
 
                     if (counter == users.length) {
@@ -1552,7 +1675,7 @@ if (auth == undefined) {
             <td><img id="`+ product._id + `"></td>
             <td><img style="max-height: 50px; max-width: 50px; border: 1px solid #ddd;" src="${product.img == "" ? "./assets/images/default.jpg" : img_path + product.img}" id="product_img"></td>
             <td>${product.name}</td>
-            <td>${product.price} ${settings.symbol}</td>
+            <td>${product.price} ${settings ? settings.symbol : ''}</td>
             <td>${product.stock == 1 ? product.quantity : 'N/A'}</td>
             <td>${category.length > 0 ? category[0].name : ''}</td>
             <td class="nobr"><span class="btn-group"><button onClick="$(this).editProduct(${index})" class="btn btn-warning btn-sm"><i class="fa fa-edit"></i></button><button onClick="$(this).deleteProduct(${product._id})" class="btn btn-danger btn-sm"><i class="fa fa-trash"></i></button></span></td></tr>`;
@@ -2026,20 +2149,20 @@ function loadTransactions() {
                 transaction_list += `<tr>
                                 <td>${trans.order}</td>
                                 <td class="nobr">${moment(trans.date).format('YYYY MMM DD hh:mm:ss')}</td>
-                                <td>${trans.total + " " + settings.symbol}</td>
-                                <td>${trans.paid == "" ? "" : trans.paid + " " + settings.symbol}</td>
-                                <td>${trans.change ? Math.abs(trans.change).toFixed(2) + " " + settings.symbol : ''}</td>
+                                <td>${trans.total + " " + getCurrencySymbol()}</td>
+                                <td>${trans.paid == "" ? "" : trans.paid + " " + getCurrencySymbol()}</td>
+                                <td>${trans.change ? Math.abs(trans.change).toFixed(2) + " " + getCurrencySymbol() : ''}</td>
                                 <td>${trans.paid == "" ? "" : trans.payment_type == 0 ? "Cash" : 'Card'}</td>
-                                <td>${subProfit + " " + settings.symbol}</td>
+                                <td>${subProfit + " " + getCurrencySymbol()}</td>
                                 <td>${trans.user}</td>
                                 <td>${trans.paid == "" ? '<button class="btn btn-dark"><i class="fa fa-search-plus"></i></button>' : '<button onClick="$(this).viewTransaction(' + index + ')" class="btn btn-info"><i class="fa fa-search-plus"></i></button></td>'}</tr>
                     `;
                 subProfit = 0;
                 if (counter == transactions.length) {
 
-                    $('#total_sales #counter').text(parseFloat(sales).toFixed(2) + " " + settings.symbol);
+                    $('#total_sales #counter').text(parseFloat(sales).toFixed(2) + " " + getCurrencySymbol());
                     $('#total_transactions #counter').text(transact);
-                    $('#total_profit #counter').text(totalProfit + " " + settings.symbol);
+                    $('#total_profit #counter').text(totalProfit + " " + getCurrencySymbol());
                     const result = {};
 
                     for (const { product_name, price, quantity, id } of sold_items) {
@@ -2131,12 +2254,18 @@ function loadSoldProducts() {
         });
 
         counter++;
+        
+        // Check if product exists to avoid undefined errors
+        let stockDisplay = 'N/A';
+        if (product && product.length > 0 && product[0]) {
+            stockDisplay = product[0].stock == 1 ? product[0].quantity : 'N/A';
+        }
 
         sold_list += `<tr>
             <td>${item.product}</td>
             <td>${item.qty}</td>
-            <td>${product[0].stock == 1 ? product.length > 0 ? product[0].quantity : '' : 'N/A'}</td>
-            <td>${(item.qty * parseFloat(item.price)).toFixed(2) + " " + settings.symbol}</td>
+            <td>${stockDisplay}</td>
+            <td>${(item.qty * parseFloat(item.price)).toFixed(2) + " " + getCurrencySymbol()}</td>
             </tr>`;
 
         if (counter == sold.length) {
@@ -2189,7 +2318,7 @@ $.fn.viewTransaction = function (index) {
     let products = allTransactions[index].items;
 
     products.forEach(item => {
-        items += "<tr><td>" + item.product_name + "</td><td>" + item.quantity + "</td><td>" + parseFloat(item.price).toFixed(2) + " " + settings.symbol + "</td></tr>";
+        items += "<tr><td>" + item.product_name + "</td><td>" + item.quantity + "</td><td>" + parseFloat(item.price).toFixed(2) + " " + getCurrencySymbol() + "</td></tr>";
 
     });
 
@@ -2208,12 +2337,12 @@ $.fn.viewTransaction = function (index) {
         payment = `<tr>
                     <td>Paid</td>
                     <td>:</td>
-                    <td>${allTransactions[index].paid + " " + settings.symbol}</td>
+                    <td>${allTransactions[index].paid + " " + getCurrencySymbol()}</td>
                 </tr>
                 <tr>
                     <td>Change</td>
                     <td>:</td>
-                    <td>${Math.abs(allTransactions[index].change).toFixed(2) + " " + settings.symbol}</td>
+                    <td>${Math.abs(allTransactions[index].change).toFixed(2) + " " + getCurrencySymbol()}</td>
                 </tr>
                 <tr>
                     <td>Method</td>
@@ -2228,7 +2357,7 @@ $.fn.viewTransaction = function (index) {
         tax_row = `<tr>
                 <td>Vat(${settings.percentage})% </td>
                 <td>:</td>
-                <td>${parseFloat(allTransactions[index].tax).toFixed(2)} ${settings.symbol}</td>
+                <td>${parseFloat(allTransactions[index].tax).toFixed(2)} ${getCurrencySymbol()}</td>
             </tr>`;
     }
 
@@ -2269,12 +2398,12 @@ $.fn.viewTransaction = function (index) {
         <tr>                        
             <td><b>Subtotal</b></td>
             <td>:</td>
-            <td><b>${allTransactions[index].subtotal} ${settings.symbol}</b></td>
+            <td><b>${allTransactions[index].subtotal} ${getCurrencySymbol()}</b></td>
         </tr>
         <tr>
             <td>Discount</td>
             <td>:</td>
-            <td>${discount > 0 ? parseFloat(allTransactions[index].discount).toFixed(2) + " " + settings.symbol : ''}</td>
+            <td>${discount > 0 ? parseFloat(allTransactions[index].discount).toFixed(2) + " " + getCurrencySymbol() : ''}</td>
         </tr>
         
         ${tax_row}
@@ -2283,7 +2412,7 @@ $.fn.viewTransaction = function (index) {
             <td><h3>Total</h3></td>
             <td><h3>:</h3></td>
             <td>
-                <h3>${allTransactions[index].total} ${settings.symbol}</h3>
+                <h3>${allTransactions[index].total} ${getCurrencySymbol()}</h3>
             </td>
         </tr>
         ${payment == 0 ? '' : payment}
@@ -2414,5 +2543,1422 @@ $('#quit').click(function () {
         }
     });
 });
+
+
+// ==================== CLIENT MANAGEMENT FEATURES ====================
+// Client Management functionality for partial payments and pay later
+
+let allClients = [];
+let selectedClient = null;
+let isPartialPayment = false;
+let isPayLater = false;
+
+// Load all clients
+function loadClients() {
+    $.get(api + 'clients/all', function (clients) {
+        allClients = clients;
+        
+        // Populate client select dropdown
+        updateClientSelectDropdown();
+        
+        // Load client list in modal
+        loadClientList();
+    });
+}
+
+// Update client select dropdown
+function updateClientSelectDropdown(filteredClients = null) {
+    let clientsToShow = filteredClients || allClients;
+    
+    $('#clientSelect').html(`<option value="0">عميل عابر (Walk-in Customer)</option>`);
+    
+    clientsToShow.forEach(client => {
+        let balanceIndicator = client.balance > 0 ? ` (مستحق: ${client.balance.toFixed(2)})` : '';
+        $('#clientSelect').append(`<option value="${client._id}">${client.name}${balanceIndicator}</option>`);
+    });
+}
+
+// Search clients in POS dropdown
+$('#clientSearchInput').on('input', function() {
+    let searchTerm = $(this).val().toLowerCase();
+    
+    if (searchTerm === '') {
+        updateClientSelectDropdown();
+        return;
+    }
+    
+    let filteredClients = allClients.filter(client => {
+        let name = (client.name || '').toLowerCase();
+        let phone = (client.phone || '').toLowerCase();
+        
+        return name.includes(searchTerm) || phone.includes(searchTerm);
+    });
+    
+    updateClientSelectDropdown(filteredClients);
+    
+    // Auto-select if only one result
+    if (filteredClients.length === 1) {
+        $('#clientSelect').val(filteredClients[0]._id);
+    }
+});
+
+// Clear search when client is selected
+$('#clientSelect').on('change', function() {
+    let selectedId = $(this).val();
+    if (selectedId !== '0') {
+        let selectedClient = allClients.find(c => c._id === selectedId);
+        if (selectedClient) {
+            $('#clientSearchInput').val(selectedClient.name);
+        }
+    } else {
+        $('#clientSearchInput').val('');
+    }
+});
+
+// Focus on client search on Enter key
+$('#clientSearchInput').on('keypress', function(e) {
+    if (e.which === 13) { // Enter key
+        e.preventDefault();
+        let filteredOptions = $('#clientSelect option').length;
+        if (filteredOptions === 2) { // Walk-in + 1 client
+            $('#clientSelect option:eq(1)').prop('selected', true);
+            $('#clientSelect').trigger('change');
+        }
+    }
+});
+
+// Load client list table
+function loadClientList(filteredClients = null) {
+    let clientsToShow = filteredClients || allClients;
+    $('#client_list').empty();
+    
+    if (clientsToShow.length === 0) {
+        $('#client_list').append('<tr><td colspan="6" class="text-center">لا يوجد عملاء (No clients found)</td></tr>');
+        return;
+    }
+    
+    clientsToShow.forEach((client, index) => {
+        let balanceClass = client.balance > 0 ? 'text-danger' : 'text-success';
+        let row = $(`
+            <tr>
+                <td>${client.name}</td>
+                <td>${client.phone || '-'}</td>
+                <td class="${balanceClass}"><strong>${(client.balance || 0).toFixed(2)} ${getCurrencySymbol()}</strong></td>
+                <td>${(client.totalPurchases || 0).toFixed(2)} ${getCurrencySymbol()}</td>
+                <td>${(client.totalPaid || 0).toFixed(2)} ${getCurrencySymbol()}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary btn-statement-client" data-client-id="${client._id}">
+                        <i class="fa fa-file-text"></i> كشف حساب
+                    </button>
+                    ${client.balance > 0 ? `<button class="btn btn-sm btn-success btn-pay-client" data-client-id="${client._id}">
+                        <i class="fa fa-money"></i> دفع
+                    </button>` : ''}
+                    <button class="btn btn-sm btn-info btn-view-client" data-client-id="${client._id}">
+                        <i class="fa fa-eye"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger btn-delete-client" data-client-id="${client._id}">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `);
+        $('#client_list').append(row);
+    });
+    
+    // Attach event handlers using event delegation
+    $(document).off('click', '.btn-statement-client').on('click', '.btn-statement-client', function() {
+        let clientId = $(this).data('client-id');
+        showClientStatement(clientId);
+    });
+    
+    $(document).off('click', '.btn-pay-client').on('click', '.btn-pay-client', function() {
+        let clientId = $(this).data('client-id');
+        openClientPaymentModal(clientId);
+    });
+    
+    $(document).off('click', '.btn-view-client').on('click', '.btn-view-client', function() {
+        let clientId = $(this).data('client-id');
+        viewClientDetails(clientId);
+    });
+    
+    $(document).off('click', '.btn-delete-client').on('click', '.btn-delete-client', function() {
+        let clientId = $(this).data('client-id');
+        deleteClient(clientId);
+    });
+}
+
+// Search clients
+$('#searchClients').on('input', function() {
+    let searchTerm = $(this).val().toLowerCase();
+    
+    if (searchTerm === '') {
+        loadClientList();
+        return;
+    }
+    
+    let filteredClients = allClients.filter(client => {
+        let name = (client.name || '').toLowerCase();
+        let phone = (client.phone || '').toLowerCase();
+        let email = (client.email || '').toLowerCase();
+        
+        return name.includes(searchTerm) || 
+               phone.includes(searchTerm) || 
+               email.includes(searchTerm);
+    });
+    
+    loadClientList(filteredClients);
+});
+
+// Save new client
+$('#saveClient').submit(function (e) {
+    e.preventDefault();
+    
+    let clientData = {
+        name: $('#clientName').val(),
+        phone: $('#clientPhone').val(),
+        email: $('#clientEmail').val(),
+        address: $('#clientAddress').val()
+    };
+    
+    $.ajax({
+        url: api + 'clients/client',
+        type: 'POST',
+        data: JSON.stringify(clientData),
+        contentType: 'application/json',
+        success: function (response) {
+            Swal.fire({
+                icon: 'success',
+                title: 'تم!',
+                text: 'تم إضافة العميل بنجاح',
+                timer: 2000
+            });
+            
+            $('#newClient').modal('hide');
+            $('#saveClient')[0].reset();
+            loadClients();
+        },
+        error: function (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'خطأ!',
+                text: 'حدث خطأ أثناء إضافة العميل'
+            });
+        }
+    });
+});
+
+// Open client payment modal
+function openClientPaymentModal(clientId) {
+    let client = allClients.find(c => c._id === clientId);
+    if (!client) return;
+    
+    $('#clientPaymentId').val(client._id);
+    $('#clientPaymentName').text(client.name);
+    $('#clientPaymentBalance').text((client.balance || 0).toFixed(2) + ' ' + getCurrencySymbol());
+    $('#paymentAmount').val('');
+    $('#paymentNote').val('');
+    
+    $('#clientPaymentModal').modal('show');
+}
+
+// Save client payment
+$('#saveClientPayment').submit(function (e) {
+    e.preventDefault();
+    
+    let clientId = $('#clientPaymentId').val();
+    let amount = parseFloat($('#paymentAmount').val());
+    let client = allClients.find(c => c._id === clientId);
+    
+    if (amount <= 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير!',
+            text: 'الرجاء إدخال مبلغ صحيح'
+        });
+        return;
+    }
+    
+    if (amount > client.balance) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير!',
+            text: 'المبلغ المدخل أكبر من الرصيد المستحق',
+            showCancelButton: true,
+            confirmButtonText: 'متابعة على أي حال',
+            cancelButtonText: 'إلغاء'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                submitClientPayment();
+            }
+        });
+    } else {
+        submitClientPayment();
+    }
+});
+
+function submitClientPayment() {
+    let paymentData = {
+        amount: parseFloat($('#paymentAmount').val()),
+        paymentType: $('#paymentTypeClient').val(),
+        note: $('#paymentNote').val()
+    };
+    
+    let clientId = $('#clientPaymentId').val();
+    
+    $.ajax({
+        url: api + 'clients/client/' + clientId + '/payment',
+        type: 'POST',
+        data: JSON.stringify(paymentData),
+        contentType: 'application/json',
+        success: function (response) {
+            Swal.fire({
+                icon: 'success',
+                title: 'تم!',
+                text: 'تم تسجيل الدفع بنجاح',
+                timer: 2000
+            });
+            
+            $('#clientPaymentModal').modal('hide');
+            loadClients();
+        },
+        error: function (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'خطأ!',
+                text: 'حدث خطأ أثناء تسجيل الدفع'
+            });
+        }
+    });
+}
+
+// View client details
+function viewClientDetails(clientId) {
+    let client = allClients.find(c => c._id === clientId);
+    if (!client) return;
+    
+    let paymentHistory = '';
+    if (client.paymentHistory && client.paymentHistory.length > 0) {
+        paymentHistory = '<h4>سجل الدفعات (Payment History):</h4><ul>';
+        client.paymentHistory.forEach(payment => {
+            paymentHistory += `<li>${moment(payment.date).format('DD/MM/YYYY HH:mm')} - ${payment.amount.toFixed(2)} ${getCurrencySymbol()} (${payment.paymentType})</li>`;
+        });
+        paymentHistory += '</ul>';
+    } else {
+        paymentHistory = '<p>لا يوجد سجل دفعات (No payment history)</p>';
+    }
+    
+    Swal.fire({
+        title: client.name,
+        html: `
+            <div style="text-align: right;">
+                <p><strong>الهاتف:</strong> ${client.phone || '-'}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${client.email || '-'}</p>
+                <p><strong>العنوان:</strong> ${client.address || '-'}</p>
+                <hr>
+                <p><strong>الرصيد المستحق:</strong> <span style="color: ${client.balance > 0 ? 'red' : 'green'}">${(client.balance || 0).toFixed(2)} ${getCurrencySymbol()}</span></p>
+                <p><strong>إجمالي المشتريات:</strong> ${(client.totalPurchases || 0).toFixed(2)} ${getCurrencySymbol()}</p>
+                <p><strong>إجمالي المدفوع:</strong> ${(client.totalPaid || 0).toFixed(2)} ${getCurrencySymbol()}</p>
+                <hr>
+                ${paymentHistory}
+            </div>
+        `,
+        width: 600
+    });
+}
+
+// Delete client
+function deleteClient(clientId) {
+    let client = allClients.find(c => c._id === clientId);
+    
+    Swal.fire({
+        title: 'هل أنت متأكد؟',
+        text: `سيتم حذف العميل: ${client.name}`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'نعم، احذف!',
+        cancelButtonText: 'إلغاء'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.ajax({
+                url: api + 'clients/client/' + clientId,
+                type: 'DELETE',
+                success: function () {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'تم الحذف!',
+                        text: 'تم حذف العميل بنجاح',
+                        timer: 2000
+                    });
+                    loadClients();
+                },
+                error: function () {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'خطأ!',
+                        text: 'حدث خطأ أثناء حذف العميل'
+                    });
+                }
+            });
+        }
+    });
+}
+
+// Toggle partial payment
+function togglePartialPayment() {
+    isPartialPayment = $('#partialPayment').is(':checked');
+    
+    console.log('Partial Payment toggled:', isPartialPayment);
+    
+    if (isPartialPayment) {
+        $('#payLater').prop('checked', false);
+        isPayLater = false;
+        $('#payment').prop('readonly', false);
+        $('#payment').focus();
+        $('#remainingBalance').show();
+        updateRemainingBalance();
+        
+        // Check if client is selected
+        let clientId = $('#clientSelect').val();
+        if (clientId === '0') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'تحذير!',
+                text: 'الرجاء اختيار عميل للدفع الجزئي'
+            });
+            $('#partialPayment').prop('checked', false);
+            isPartialPayment = false;
+            $('#remainingBalance').hide();
+        }
+    } else {
+        $('#remainingBalance').hide();
+    }
+}
+
+// Toggle pay later
+function togglePayLater() {
+    isPayLater = $('#payLater').is(':checked');
+    
+    console.log('Pay Later toggled:', isPayLater);
+    
+    if (isPayLater) {
+        // Check if client is selected first
+        let clientId = $('#clientSelect').val();
+        if (clientId === '0') {
+            Swal.fire({
+                icon: 'warning',
+                title: 'تحذير!',
+                text: 'الرجاء اختيار عميل للدفع اللاحق'
+            });
+            $('#payLater').prop('checked', false);
+            isPayLater = false;
+            $('#payment').prop('readonly', false);
+            $('#remainingBalance').hide();
+            return;
+        }
+        
+        $('#partialPayment').prop('checked', false);
+        isPartialPayment = false;
+        $('#payment').val('0');
+        $('#payment').prop('readonly', true);
+        $('#change').text('0');
+        $('#remainingBalance').show();
+        
+        let total = $('#payablePrice').val();
+        $('#remaining').text(total);
+        $('#remaining_curr').text(getCurrencySymbol());
+        $('#confirmPayment').show();
+    } else {
+        $('#payment').prop('readonly', false);
+        $('#payment').val('');
+        $('#remainingBalance').hide();
+    }
+}
+
+// Update remaining balance display
+function updateRemainingBalance() {
+    if (isPartialPayment || isPayLater) {
+        let total = parseFloat($('#payablePrice').val()) || 0;
+        let paid = parseFloat($('#payment').val()) || 0;
+        let remaining = total - paid;
+        
+        $('#remainingBalance').show();
+        
+        if (remaining > 0) {
+            $('#remaining').text(remaining.toFixed(2));
+            $('#remaining_curr').text(getCurrencySymbol());
+        } else {
+            $('#remaining').text('0.00');
+        }
+    } else {
+        $('#remainingBalance').hide();
+    }
+}
+
+// Initialize currency symbols for remaining balance
+function initializeClientFeatures() {
+    if (settings && settings.symbol) {
+        $('#remaining_curr').text(getCurrencySymbol());
+    }
+    
+    // Load clients on page load
+    loadClients();
+    
+    // Make sure remaining balance is hidden initially
+    $('#remainingBalance').hide();
+    
+    // Update remaining balance when payment input changes
+    $(document).on('input', '#payment', function() {
+        updateRemainingBalance();
+    });
+    
+    // Initialize the checkbox event handlers
+    $(document).on('change', '#partialPayment', togglePartialPayment);
+    $(document).on('change', '#payLater', togglePayLater);
+}
+
+// Get selected client object
+function getSelectedClient() {
+    let clientId = $('#clientSelect').val();
+    if (clientId === '0') {
+        return { _id: '0', name: 'عميل عابر' };
+    }
+    return allClients.find(c => c._id === clientId) || { _id: '0', name: 'عميل عابر' };
+}
+
+// ==================== UNPAID TRANSACTIONS MANAGEMENT ====================
+
+let allUnpaidTransactions = [];
+
+// Load unpaid transactions
+function loadUnpaidTransactions() {
+    $.get(api + 'unpaid/all', function (transactions) {
+        allUnpaidTransactions = transactions;
+        renderUnpaidTransactionsList();
+    });
+}
+
+// Render unpaid transactions list
+function renderUnpaidTransactionsList(filteredTransactions = null) {
+    let transactionsToShow = filteredTransactions || allUnpaidTransactions;
+    $('#unpaid_transactions_list').empty();
+    
+    if (transactionsToShow.length === 0) {
+        $('#unpaid_transactions_list').append('<tr><td colspan="7" class="text-center">لا توجد معاملات غير مدفوعة</td></tr>');
+        return;
+    }
+    
+    transactionsToShow.forEach((trans, index) => {
+        let total = parseFloat(trans.total);
+        let paid = parseFloat(trans.paid || 0);
+        let remaining = total - paid;
+        
+        let clientName = 'عميل عابر';
+        if (trans.client && trans.client._id !== '0') {
+            clientName = trans.client.name;
+        }
+        
+        let row = $(`
+            <tr>
+                <td><strong>${trans.order}</strong></td>
+                <td>${clientName}</td>
+                <td>${moment(trans.date).format('DD/MM/YYYY HH:mm')}</td>
+                <td><strong>${total.toFixed(2)} ${getCurrencySymbol()}</strong></td>
+                <td>${paid.toFixed(2)} ${getCurrencySymbol()}</td>
+                <td class="text-danger"><strong>${remaining.toFixed(2)} ${getCurrencySymbol()}</strong></td>
+                <td>
+                    <button class="btn btn-sm btn-success btn-add-payment" data-transaction-id="${trans._id}">
+                        <i class="fa fa-money"></i> دفع
+                    </button>
+                    <button class="btn btn-sm btn-info btn-view-trans" data-transaction-index="${index}">
+                        <i class="fa fa-eye"></i>
+                    </button>
+                </td>
+            </tr>
+        `);
+        $('#unpaid_transactions_list').append(row);
+    });
+    
+    // Attach event handlers
+    $(document).off('click', '.btn-add-payment').on('click', '.btn-add-payment', function() {
+        let transactionId = $(this).data('transaction-id');
+        openAddPaymentModal(transactionId);
+    });
+    
+    $(document).off('click', '.btn-view-trans').on('click', '.btn-view-trans', function() {
+        let index = $(this).data('transaction-index');
+        viewUnpaidTransaction(index);
+    });
+}
+
+// Search unpaid transactions
+$('#searchUnpaidTransactions').on('input', function() {
+    let searchTerm = $(this).val().toLowerCase();
+    
+    if (searchTerm === '') {
+        renderUnpaidTransactionsList();
+        return;
+    }
+    
+    let filteredTransactions = allUnpaidTransactions.filter(trans => {
+        let invoice = (trans.order || '').toString().toLowerCase();
+        let clientName = '';
+        
+        if (trans.client && trans.client._id !== '0') {
+            clientName = (trans.client.name || '').toLowerCase();
+        } else {
+            clientName = 'عميل عابر';
+        }
+        
+        return invoice.includes(searchTerm) || clientName.includes(searchTerm);
+    });
+    
+    renderUnpaidTransactionsList(filteredTransactions);
+});
+
+// Open add payment modal
+function openAddPaymentModal(transactionId) {
+    let trans = allUnpaidTransactions.find(t => t._id === transactionId);
+    if (!trans) return;
+    
+    let total = parseFloat(trans.total);
+    let paid = parseFloat(trans.paid || 0);
+    let remaining = total - paid;
+    
+    let clientName = 'عميل عابر';
+    if (trans.client && trans.client._id !== '0') {
+        clientName = trans.client.name;
+    }
+    
+    $('#transPaymentId').val(trans._id);
+    $('#transPaymentInvoice').text(trans.order);
+    $('#transPaymentClient').text(clientName);
+    $('#transPaymentTotal').text(total.toFixed(2) + ' ' + getCurrencySymbol());
+    $('#transPaymentPaid').text(paid.toFixed(2) + ' ' + getCurrencySymbol());
+    $('#transPaymentRemaining').text(remaining.toFixed(2) + ' ' + getCurrencySymbol());
+    $('#transPaymentAmount').val('');
+    $('#transPaymentAmount').attr('max', remaining.toFixed(2));
+    $('#transPaymentInfo').val('');
+    
+    $('#addPaymentModal').modal('show');
+}
+
+// Save transaction payment
+$('#saveTransactionPayment').submit(function (e) {
+    e.preventDefault();
+    
+    let transactionId = $('#transPaymentId').val();
+    let amount = parseFloat($('#transPaymentAmount').val());
+    let trans = allUnpaidTransactions.find(t => t._id === transactionId);
+    
+    if (!trans) return;
+    
+    let remaining = parseFloat(trans.total) - parseFloat(trans.paid || 0);
+    
+    if (amount <= 0) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير!',
+            text: 'الرجاء إدخال مبلغ صحيح'
+        });
+        return;
+    }
+    
+    if (amount > remaining) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير!',
+            text: 'المبلغ المدخل أكبر من المتبقي',
+            showCancelButton: true,
+            confirmButtonText: 'متابعة على أي حال',
+            cancelButtonText: 'إلغاء'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                submitTransactionPayment();
+            }
+        });
+    } else {
+        submitTransactionPayment();
+    }
+});
+
+function submitTransactionPayment() {
+    let paymentData = {
+        amount: parseFloat($('#transPaymentAmount').val()),
+        paymentType: parseInt($('#transPaymentType').val()),
+        paymentInfo: $('#transPaymentInfo').val()
+    };
+    
+    let transactionId = $('#transPaymentId').val();
+    
+    $.ajax({
+        url: api + 'add-payment/' + transactionId,
+        type: 'POST',
+        data: JSON.stringify(paymentData),
+        contentType: 'application/json',
+        success: function (response) {
+            Swal.fire({
+                icon: 'success',
+                title: 'تم!',
+                text: 'تم تسجيل الدفع بنجاح',
+                timer: 2000
+            });
+            
+            $('#addPaymentModal').modal('hide');
+            
+            // Update client balance if applicable
+            let trans = allUnpaidTransactions.find(t => t._id === transactionId);
+            if (trans && trans.client && trans.client._id !== '0') {
+                let clientPaymentData = {
+                    amount: parseFloat($('#transPaymentAmount').val()),
+                    paymentType: $('#transPaymentType option:selected').text(),
+                    note: 'Payment for invoice ' + trans.order,
+                    transactionId: trans.order
+                };
+                
+                $.ajax({
+                    url: api + 'clients/client/' + trans.client._id + '/payment',
+                    type: 'POST',
+                    data: JSON.stringify(clientPaymentData),
+                    contentType: 'application/json',
+                    success: function() {
+                        loadClients();
+                    }
+                });
+            }
+            
+            // Reload unpaid transactions
+            loadUnpaidTransactions();
+        },
+        error: function (error) {
+            Swal.fire({
+                icon: 'error',
+                title: 'خطأ!',
+                text: 'حدث خطأ أثناء تسجيل الدفع'
+            });
+        }
+    });
+}
+
+// View unpaid transaction
+function viewUnpaidTransaction(index) {
+    if (typeof $.fn.viewTransaction === 'function') {
+        transaction_index = index;
+        allTransactions = allUnpaidTransactions;
+        $.fn.viewTransaction(index);
+    }
+}
+
+// Load unpaid transactions when button is clicked
+$('#viewUnpaidTransactions').on('click', function() {
+    loadUnpaidTransactions();
+});
+
+// ==================== LOW STOCK ALERTS ====================
+
+// Check low stock
+function checkLowStock() {
+    let threshold = parseInt($('#stockThreshold').val()) || 10;
+    
+    let lowStockProducts = allProducts.filter(product => {
+        // Only check products with stock tracking enabled
+        if (product.stock == 0) return false;
+        return product.quantity <= threshold;
+    });
+    
+    renderLowStockList(lowStockProducts);
+}
+
+// Render low stock list
+function renderLowStockList(products) {
+    $('#low_stock_list').empty();
+    
+    if (products.length === 0) {
+        $('#low_stock_list').append('<tr><td colspan="6" class="text-center text-success"><strong>جميع المنتجات بمخزون جيد! (All products have good stock)</strong></td></tr>');
+        return;
+    }
+    
+    products.forEach(product => {
+        let category = allCategories.find(c => c._id == product.category);
+        let categoryName = category ? category.name : '-';
+        
+        let statusClass = 'danger';
+        let statusText = 'نفد المخزون (Out of Stock)';
+        
+        if (product.quantity > 0 && product.quantity <= 5) {
+            statusClass = 'danger';
+            statusText = 'حرج (Critical)';
+        } else if (product.quantity > 5 && product.quantity <= 10) {
+            statusClass = 'warning';
+            statusText = 'منخفض (Low)';
+        } else if (product.quantity > 10) {
+            statusClass = 'info';
+            statusText = 'متوسط (Medium)';
+        }
+        
+        let row = `
+            <tr class="${statusClass}">
+                <td>${product.sku}</td>
+                <td><strong>${product.name}</strong></td>
+                <td>${categoryName}</td>
+                <td><strong>${product.quantity}</strong></td>
+                <td>${product.price} ${getCurrencySymbol()}</td>
+                <td><span class="label label-${statusClass}">${statusText}</span></td>
+            </tr>
+        `;
+        $('#low_stock_list').append(row);
+    });
+}
+
+// Load low stock when button is clicked
+$('#viewLowStock').on('click', function() {
+    checkLowStock();
+});
+
+// Auto-check for critical stock on startup
+setTimeout(function() {
+    if (allProducts && allProducts.length > 0) {
+        let criticalStock = allProducts.filter(p => p.stock == 1 && p.quantity <= 5);
+        if (criticalStock.length > 0) {
+            notiflix.Notify.Init({
+                position: "right-bottom",
+                cssAnimationDuration: 600,
+                timeout: 5000,
+                messageMaxLength: 200,
+                cssAnimationStyle: "from-bottom"
+            });
+            notiflix.Notify.Warning(`تحذير: ${criticalStock.length} منتج بمخزون حرج!`);
+        }
+    }
+}, 3000);
+
+// ==================== CLIENT STATEMENT / LEDGER ====================
+
+let currentStatementClient = null;
+
+// Show client statement
+function showClientStatement(clientId) {
+    let client = allClients.find(c => c._id === clientId);
+    if (!client) return;
+    
+    currentStatementClient = client;
+    
+    // Set client info
+    $('#statementClientName').text(client.name);
+    $('#statementClientPhone').text(client.phone || '-');
+    $('#statementClientEmail').text(client.email || '-');
+    $('#statementTotalPurchases').text((client.totalPurchases || 0).toFixed(2) + ' ' + getCurrencySymbol());
+    $('#statementTotalPaid').text((client.totalPaid || 0).toFixed(2) + ' ' + getCurrencySymbol());
+    $('#statementBalance').text((client.balance || 0).toFixed(2) + ' ' + getCurrencySymbol());
+    
+    // Load transactions for this client
+    $.get(api + 'client/' + clientId + '/transactions', function(transactions) {
+        renderClientStatement(client, transactions);
+    }).fail(function() {
+        // If API doesn't exist yet, use allTransactions
+        let clientTransactions = allTransactions.filter(t => 
+            t.client && t.client._id === clientId
+        );
+        renderClientStatement(client, clientTransactions);
+    });
+    
+    $('#clientStatementModal').modal('show');
+}
+
+// Render client statement
+function renderClientStatement(client, transactions) {
+    $('#statementTransactionsList').empty();
+    
+    if (!transactions || transactions.length === 0) {
+        $('#statementTransactionsList').append('<tr><td colspan="6" class="text-center">لا توجد معاملات (No transactions found)</td></tr>');
+        return;
+    }
+    
+    // Combine transactions and payments into a ledger
+    let ledger = [];
+    let runningBalance = 0;
+    
+    // Add all transactions (purchases)
+    transactions.forEach(trans => {
+        let total = parseFloat(trans.total || 0);
+        let paid = parseFloat(trans.paid || 0);
+        let remaining = total - paid;
+        
+        ledger.push({
+            date: new Date(trans.date),
+            type: 'فاتورة (Invoice)',
+            invoice: trans.order,
+            amount: total,
+            paid: paid,
+            balance: remaining,
+            originalDate: trans.date
+        });
+    });
+    
+    // Add payment history if available
+    if (client.paymentHistory && client.paymentHistory.length > 0) {
+        client.paymentHistory.forEach(payment => {
+            ledger.push({
+                date: new Date(payment.date),
+                type: 'دفعة (Payment)',
+                invoice: payment.transactionId || '-',
+                amount: 0,
+                paid: payment.amount,
+                balance: 0,
+                originalDate: payment.date,
+                note: payment.note
+            });
+        });
+    }
+    
+    // Sort by date
+    ledger.sort((a, b) => a.date - b.date);
+    
+    // Calculate running balance
+    ledger.forEach(entry => {
+        if (entry.type === 'فاتورة (Invoice)') {
+            runningBalance += entry.balance;
+        } else if (entry.type === 'دفعة (Payment)') {
+            runningBalance -= entry.paid;
+        }
+        entry.runningBalance = runningBalance;
+    });
+    
+    // Render ledger
+    ledger.forEach(entry => {
+        let balanceClass = entry.runningBalance > 0 ? 'text-danger' : 'text-success';
+        let row = `
+            <tr>
+                <td>${moment(entry.date).format('DD/MM/YYYY HH:mm')}</td>
+                <td><span class="label ${entry.type.includes('Invoice') ? 'label-warning' : 'label-success'}">${entry.type}</span></td>
+                <td>${entry.invoice}</td>
+                <td>${entry.amount > 0 ? entry.amount.toFixed(2) + ' ' + getCurrencySymbol() : '-'}</td>
+                <td class="text-success">${entry.paid > 0 ? entry.paid.toFixed(2) + ' ' + getCurrencySymbol() : '-'}</td>
+                <td class="${balanceClass}"><strong>${entry.runningBalance.toFixed(2)} ${getCurrencySymbol()}</strong></td>
+            </tr>
+        `;
+        $('#statementTransactionsList').append(row);
+    });
+}
+
+// Print client statement
+function printClientStatement() {
+    let printContent = document.getElementById('clientStatementContent').innerHTML;
+    let originalContent = document.body.innerHTML;
+    
+    let printWindow = window.open('', '', 'height=600,width=800');
+    printWindow.document.write('<html><head><title>Client Statement</title>');
+    printWindow.document.write('<style>body{font-family:Arial;direction:rtl;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;text-align:right;} .text-danger{color:red;} .text-success{color:green;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(printContent);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.print();
+}
+
+// ==================== DATA BACKUP AND EXPORT ====================
+
+// Export all data as JSON backup
+function exportAllData() {
+    Swal.fire({
+        title: 'جاري تصدير البيانات...',
+        text: 'يرجى الانتظار',
+        allowOutsideClick: false,
+        didOpen: () => {
+            Swal.showLoading();
+        }
+    });
+    
+    Promise.all([
+        $.get(api + 'products').catch(() => []),
+        $.get(api + 'transactions/all').catch(() => []),
+        $.get(api + 'clients/all').catch(() => []),
+        $.get(api + 'category').catch(() => []),
+        $.get(api + 'settings').catch(() => ({}))
+    ]).then(([products, transactions, clients, categories, settings]) => {
+        let backupData = {
+            exportDate: new Date().toISOString(),
+            version: '1.0',
+            data: {
+                products: products || [],
+                transactions: transactions || [],
+                clients: clients || [],
+                categories: categories || [],
+                settings: settings || {}
+            }
+        };
+        
+        downloadJSON(backupData, `POS-Backup-${moment().format('YYYY-MM-DD-HHmmss')}.json`);
+        
+        Swal.fire({
+            icon: 'success',
+            title: 'تم التصدير بنجاح!',
+            text: 'تم حفظ نسخة احتياطية كاملة من البيانات',
+            confirmButtonText: 'حسناً'
+        });
+    }).catch(error => {
+        console.error("Backup error:", error);
+        Swal.fire({
+            icon: 'error',
+            title: 'خطأ في التصدير',
+            text: 'حدث خطأ أثناء تصدير البيانات: ' + (error.message || 'خطأ غير معروف'),
+            confirmButtonText: 'حسناً'
+        });
+    });
+}
+
+// Export clients only
+function exportClients() {
+    $.get(api + 'clients/all', function(clients) {
+        downloadJSON(clients, `Clients-${moment().format('YYYY-MM-DD')}.json`);
+        notiflix.Notify.Success('تم تصدير ' + clients.length + ' عميل');
+    });
+}
+
+// Export transactions
+function exportTransactions() {
+    Swal.fire({
+        title: 'تصدير المعاملات',
+        html: `
+            <div class="form-group">
+                <label>من تاريخ:</label>
+                <input type="date" id="exportFromDate" class="swal2-input">
+            </div>
+            <div class="form-group">
+                <label>إلى تاريخ:</label>
+                <input type="date" id="exportToDate" class="swal2-input">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="exportAll" checked> تصدير الكل
+                </label>
+            </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'تصدير',
+        cancelButtonText: 'إلغاء',
+        preConfirm: () => {
+            let exportAll = document.getElementById('exportAll').checked;
+            let fromDate = document.getElementById('exportFromDate').value;
+            let toDate = document.getElementById('exportToDate').value;
+            
+            return { exportAll, fromDate, toDate };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            $.get(api + 'transactions/all', function(transactions) {
+                let filteredTransactions = transactions;
+                
+                if (!result.value.exportAll) {
+                    let fromDate = result.value.fromDate ? new Date(result.value.fromDate) : null;
+                    let toDate = result.value.toDate ? new Date(result.value.toDate) : null;
+                    
+                    if (toDate) {
+                        toDate.setHours(23, 59, 59); // End of day
+                    }
+                    
+                    filteredTransactions = transactions.filter(trans => {
+                        let transDate = new Date(trans.date);
+                        if (fromDate && transDate < fromDate) return false;
+                        if (toDate && transDate > toDate) return false;
+                        return true;
+                    });
+                }
+                
+                downloadJSON(filteredTransactions, `Transactions-${moment().format('YYYY-MM-DD')}.json`);
+                notiflix.Notify.Success('تم تصدير ' + filteredTransactions.length + ' معاملة');
+            });
+        }
+    });
+}
+
+// Export products
+function exportProducts() {
+    $.get(api + 'products', function(products) {
+        // Create CSV format for products (easier to import to Excel)
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "Product Name,Barcode,Price,Quantity,Category\n";
+        
+        products.forEach(product => {
+            csvContent += `"${product.product_name}","${product.barcode}",${product.price},${product.quantity},"${product.category}"\n`;
+        });
+        
+        let encodedUri = encodeURI(csvContent);
+        let link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Products-${moment().format('YYYY-MM-DD')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        notiflix.Notify.Success('تم تصدير ' + products.length + ' منتج');
+    });
+}
+
+// Helper function to download JSON data
+function downloadJSON(data, filename) {
+    let dataStr = JSON.stringify(data, null, 2);
+    let dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    
+    let exportFileDefaultName = filename;
+    
+    let linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+}
+
+// ==================== SALES REPORTS ====================
+
+let currentReportData = null;
+
+// Set default dates on modal open
+$('#viewSalesReports').on('click', function() {
+    let today = moment().format('YYYY-MM-DD');
+    let weekAgo = moment().subtract(7, 'days').format('YYYY-MM-DD');
+    
+    $('#reportToDate').val(today);
+    $('#reportFromDate').val(weekAgo);
+});
+
+// Event handlers for report buttons
+$('#generateSalesReportBtn').on('click', function() {
+    generateSalesReport();
+});
+
+$('#printSalesReportBtn').on('click', function() {
+    printSalesReport();
+});
+
+$('#exportSalesReportBtn').on('click', function() {
+    exportSalesReportCSV();
+});
+
+// Generate sales report
+function generateSalesReport() {
+    let fromDate = $('#reportFromDate').val();
+    let toDate = $('#reportToDate').val();
+    
+    if (!fromDate || !toDate) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير',
+            text: 'يرجى اختيار نطاق التاريخ',
+            confirmButtonText: 'حسناً'
+        });
+        return;
+    }
+    
+    // Show loading
+    $('#salesReportContent').html('<div class="text-center"><i class="fa fa-spinner fa-spin fa-3x"></i><br>جاري إنشاء التقرير...</div>');
+    
+    $.get(api + 'transactions/all', function(transactions) {
+        // Handle empty or null response
+        if (!transactions || !Array.isArray(transactions)) {
+            transactions = [];
+        }
+        
+        console.log('Total transactions loaded:', transactions.length);
+        
+        // Filter transactions by date range
+        let startDate = new Date(fromDate);
+        startDate.setHours(0, 0, 0, 0);
+        
+        let endDate = new Date(toDate);
+        endDate.setHours(23, 59, 59, 999);
+        
+        let filteredTransactions = transactions.filter(trans => {
+            let transDate = new Date(trans.date);
+            return transDate >= startDate && transDate <= endDate;
+        });
+        
+        console.log('Filtered transactions:', filteredTransactions.length);
+        console.log('Date range:', fromDate, 'to', toDate);
+        
+        // Calculate statistics
+        let stats = calculateSalesStats(filteredTransactions);
+        currentReportData = { transactions: filteredTransactions, stats: stats, fromDate: fromDate, toDate: toDate };
+        
+        // Render report
+        renderSalesReport(stats, filteredTransactions);
+    }).fail(function(xhr, status, error) {
+        console.error("Error loading transactions:", error);
+        $('#salesReportContent').html(`
+            <div class="alert alert-warning text-center">
+                <i class="fa fa-exclamation-triangle"></i> 
+                <strong>لا توجد بيانات</strong><br>
+                لم يتم العثور على معاملات أو لم يتم إنشاء أي معاملات بعد.<br>
+                قم بإنشاء بعض المعاملات أولاً ثم حاول مرة أخرى.
+            </div>
+        `);
+    });
+}
+
+// Calculate sales statistics
+function calculateSalesStats(transactions) {
+    let stats = {
+        totalSales: 0,
+        totalTransactions: transactions.length,
+        totalDiscount: 0,
+        totalPaid: 0,
+        totalRemaining: 0,
+        cashSales: 0,
+        cardSales: 0,
+        creditSales: 0,
+        dailyStats: {},
+        productStats: {},
+        clientStats: {}
+    };
+    
+    transactions.forEach(trans => {
+        let total = parseFloat(trans.total || 0);
+        let paid = parseFloat(trans.paid || 0);
+        let discount = parseFloat(trans.discount || 0);
+        
+        stats.totalSales += total;
+        stats.totalDiscount += discount;
+        stats.totalPaid += paid;
+        stats.totalRemaining += (total - paid);
+        
+        // Payment method breakdown
+        if (trans.status === 1) { // Fully paid
+            if (trans.method === 0 || trans.method === '0' || trans.method === 'Cash') {
+                stats.cashSales += total;
+            } else if (trans.method === 2 || trans.method === '2' || trans.method === 'Card') {
+                stats.cardSales += total;
+            }
+        } else {
+            stats.creditSales += (total - paid);
+        }
+        
+        // Daily stats
+        let dateKey = moment(trans.date).format('YYYY-MM-DD');
+        if (!stats.dailyStats[dateKey]) {
+            stats.dailyStats[dateKey] = { sales: 0, transactions: 0 };
+        }
+        stats.dailyStats[dateKey].sales += total;
+        stats.dailyStats[dateKey].transactions++;
+        
+        // Product stats
+        if (trans.cart && Array.isArray(trans.cart)) {
+            trans.cart.forEach(item => {
+                if (!stats.productStats[item.product_name]) {
+                    stats.productStats[item.product_name] = { quantity: 0, revenue: 0 };
+                }
+                stats.productStats[item.product_name].quantity += item.quantity;
+                stats.productStats[item.product_name].revenue += (item.quantity * item.price);
+            });
+        }
+        
+        // Client stats
+        if (trans.client && trans.client._id !== '0') {
+            let clientName = trans.client.name;
+            if (!stats.clientStats[clientName]) {
+                stats.clientStats[clientName] = { purchases: 0, amount: 0 };
+            }
+            stats.clientStats[clientName].purchases++;
+            stats.clientStats[clientName].amount += total;
+        }
+    });
+    
+    return stats;
+}
+
+// Render sales report
+function renderSalesReport(stats, transactions) {
+    let html = `
+        <div class="row">
+            <div class="col-md-3">
+                <div class="panel panel-primary">
+                    <div class="panel-body text-center">
+                        <h4>إجمالي المبيعات</h4>
+                        <h2>${stats.totalSales.toFixed(2)} ${getCurrencySymbol()}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="panel panel-success">
+                    <div class="panel-body text-center">
+                        <h4>المدفوع</h4>
+                        <h2>${stats.totalPaid.toFixed(2)} ${getCurrencySymbol()}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="panel panel-danger">
+                    <div class="panel-body text-center">
+                        <h4>المتبقي</h4>
+                        <h2>${stats.totalRemaining.toFixed(2)} ${getCurrencySymbol()}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="panel panel-info">
+                    <div class="panel-body text-center">
+                        <h4>عدد المعاملات</h4>
+                        <h2>${stats.totalTransactions}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-4">
+                <div class="panel panel-default">
+                    <div class="panel-heading">طرق الدفع</div>
+                    <div class="panel-body">
+                        <p><strong>نقدي:</strong> ${stats.cashSales.toFixed(2)} ${getCurrencySymbol()}</p>
+                        <p><strong>بطاقة:</strong> ${stats.cardSales.toFixed(2)} ${getCurrencySymbol()}</p>
+                        <p><strong>آجل:</strong> ${stats.creditSales.toFixed(2)} ${getCurrencySymbol()}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="panel panel-default">
+                    <div class="panel-heading">الخصومات</div>
+                    <div class="panel-body">
+                        <h3>${stats.totalDiscount.toFixed(2)} ${getCurrencySymbol()}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="panel panel-default">
+                    <div class="panel-heading">متوسط المبيعات</div>
+                    <div class="panel-body">
+                        <h3>${(stats.totalSales / (stats.totalTransactions || 1)).toFixed(2)} ${getCurrencySymbol()}</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <h4>أفضل المنتجات مبيعاً</h4>
+        <table class="table table-bordered table-striped">
+            <thead>
+                <tr>
+                    <th>المنتج</th>
+                    <th>الكمية</th>
+                    <th>الإيرادات</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    // Top products
+    let topProducts = Object.entries(stats.productStats)
+        .sort((a, b) => b[1].revenue - a[1].revenue)
+        .slice(0, 10);
+    
+    if (topProducts.length === 0) {
+        html += '<tr><td colspan="3" class="text-center">لا توجد بيانات</td></tr>';
+    } else {
+        topProducts.forEach(([product, data]) => {
+            html += `
+                <tr>
+                    <td>${product}</td>
+                    <td>${data.quantity}</td>
+                    <td>${data.revenue.toFixed(2)} ${getCurrencySymbol()}</td>
+                </tr>
+            `;
+        });
+    }
+    
+    html += '</tbody></table>';
+    
+    // Top clients
+    if (Object.keys(stats.clientStats).length > 0) {
+        html += `
+            <h4>أفضل العملاء</h4>
+            <table class="table table-bordered table-striped">
+                <thead>
+                    <tr>
+                        <th>العميل</th>
+                        <th>عدد المشتريات</th>
+                        <th>المبلغ</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        
+        let topClients = Object.entries(stats.clientStats)
+            .sort((a, b) => b[1].amount - a[1].amount)
+            .slice(0, 10);
+        
+        topClients.forEach(([client, data]) => {
+            html += `
+                <tr>
+                    <td>${client}</td>
+                    <td>${data.purchases}</td>
+                    <td>${data.amount.toFixed(2)} ${getCurrencySymbol()}</td>
+                </tr>
+            `;
+        });
+        
+        html += '</tbody></table>';
+    }
+    
+    $('#salesReportContent').html(html);
+}
+
+// Print sales report
+function printSalesReport() {
+    if (!currentReportData) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير',
+            text: 'يرجى إنشاء التقرير أولاً',
+            confirmButtonText: 'حسناً'
+        });
+        return;
+    }
+    
+    let printContent = document.getElementById('salesReportContent').innerHTML;
+    let printWindow = window.open('', '', 'height=600,width=800');
+    printWindow.document.write('<html><head><title>Sales Report</title>');
+    printWindow.document.write('<style>body{font-family:Arial;direction:rtl;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ddd;padding:8px;text-align:right;} .panel{border:1px solid #ddd;margin:10px;padding:10px;}</style>');
+    printWindow.document.write('</head><body>');
+    printWindow.document.write(`<h2>تقرير المبيعات</h2><p>من ${currentReportData.fromDate} إلى ${currentReportData.toDate}</p>`);
+    printWindow.document.write(printContent);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.print();
+}
+
+// Export sales report as CSV
+function exportSalesReportCSV() {
+    if (!currentReportData) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'تحذير',
+            text: 'يرجى إنشاء التقرير أولاً',
+            confirmButtonText: 'حسناً'
+        });
+        return;
+    }
+    
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += `Sales Report (${currentReportData.fromDate} to ${currentReportData.toDate})\n\n`;
+    csvContent += "Invoice,Date,Client,Total,Paid,Remaining,Status\n";
+    
+    currentReportData.transactions.forEach(trans => {
+        let clientName = trans.client && trans.client._id !== '0' ? trans.client.name : 'Walk-in';
+        let total = parseFloat(trans.total || 0);
+        let paid = parseFloat(trans.paid || 0);
+        let remaining = total - paid;
+        let status = trans.status === 1 ? 'Paid' : 'Unpaid';
+        
+        csvContent += `${trans.order},${moment(trans.date).format('YYYY-MM-DD HH:mm')},"${clientName}",${total.toFixed(2)},${paid.toFixed(2)},${remaining.toFixed(2)},${status}\n`;
+    });
+    
+    let encodedUri = encodeURI(csvContent);
+    let link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Sales-Report-${moment().format('YYYY-MM-DD')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    notiflix.Notify.Success('تم تصدير التقرير');
+}
 
 

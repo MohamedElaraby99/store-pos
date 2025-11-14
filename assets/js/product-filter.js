@@ -112,11 +112,8 @@ $(document).ready(function(){
         }else{
             $("#change").text('0')
         }
-        if(change <= 0){
-            $("#confirmPayment").show();
-        }else{
-            $("#confirmPayment").hide();
-        }
+        // Always show confirm payment button to support partial payments and pay later
+        $("#confirmPayment").show();
     }
 
 })
