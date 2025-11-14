@@ -4,9 +4,20 @@ let express = require("express"),
   server = http.createServer(app),
   bodyParser = require("body-parser");
 
-const PORT = process.env.PORT || 8001;
+// Try multiple ports to avoid conflicts
+const findAvailablePort = (startPort) => {
+  return new Promise((resolve) => {
+    const testServer = http.createServer();
+    testServer.listen(startPort, () => {
+      testServer.close(() => resolve(startPort));
+    });
+    testServer.on('error', () => {
+      resolve(findAvailablePort(startPort + 1));
+    });
+  });
+};
 
-console.log("Server started");
+console.log("Server starting...");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
@@ -38,4 +49,12 @@ app.use("/api/users", require("./api/users"));
 app.use("/api/transactions", require("./api/transactions")); // Mount at /api/transactions for new features
 app.use("/api", require("./api/transactions")); // Also mount at /api for backward compatibility
 
-server.listen(PORT, () => console.log(`Listening on PORT ${PORT}`));
+// Start server with automatic port selection
+const startPort = process.env.PORT || 8001;
+findAvailablePort(startPort).then(port => {
+  server.listen(port, () => {
+    console.log(`Server started successfully on PORT ${port}`);
+  });
+}).catch(err => {
+  console.error('Failed to start server:', err);
+});
