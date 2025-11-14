@@ -1,0 +1,103 @@
+// Handle Squirrel events on Windows
+if (require('electron-squirrel-startup')) {
+  app.quit();
+}
+
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+
+// Start server after app is ready
+let server;
+
+const contextMenu = require('electron-context-menu');
+
+let mainWindow
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1500,
+    height: 1200,
+    frame: false,
+    minWidth: 1200,
+    minHeight: 750,
+    webPreferences: {
+      nodeIntegration: true,
+    },
+  });
+
+  mainWindow.maximize();
+  mainWindow.show();
+
+  mainWindow.loadURL(
+    `file://${path.join(__dirname, 'index.html')}`
+  )
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+}
+
+
+app.on('ready', () => {
+  // Start the server first
+  try {
+    server = require('./server');
+  } catch (error) {
+    console.error('Failed to start server:', error);
+  }
+  
+  // Then create the window
+  createWindow();
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow()
+  }
+})
+
+
+
+ipcMain.on('app-quit', (evt, arg) => {
+  app.quit()
+})
+
+
+ipcMain.on('app-reload', (event, arg) => {
+  mainWindow.reload();
+});
+
+
+
+contextMenu({
+  prepend: (params, browserWindow) => [
+
+    //{
+    // label: 'DevTools',
+    // click(item, focusedWindow) {
+    //  focusedWindow.toggleDevTools();
+    // }
+    //},
+    {
+      label: "Reload",
+      click() {
+        mainWindow.reload();
+      }
+      // },
+      // {  label: 'Quit',  click:  function(){
+      //    mainWindow.destroy();
+      //     mainWindow.quit();
+      // } 
+    }
+  ],
+
+});
+
+
+

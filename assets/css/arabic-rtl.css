@@ -1,0 +1,144 @@
+/* Arabic RTL Support */
+
+body {
+    direction: rtl;
+    text-align: right;
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+
+/* Fix button groups for RTL */
+.btn-group {
+    direction: rtl;
+}
+
+.pull-left {
+    float: right !important;
+}
+
+.pull-right {
+    float: left !important;
+}
+
+/* Fix form labels */
+label {
+    text-align: right;
+}
+
+/* Fix modal headers */
+.modal-header {
+    text-align: right;
+}
+
+/* Fix table alignment */
+table {
+    direction: rtl;
+}
+
+th, td {
+    text-align: right;
+}
+
+/* Fix button labels */
+.btn-label {
+    margin-left: 5px;
+    margin-right: 0;
+}
+
+/* Fix input groups */
+.input-group {
+    direction: rtl;
+}
+
+/* Fix dropdown menus */
+.dropdown-menu {
+    text-align: right;
+    right: 0;
+    left: auto;
+}
+
+/* Fix pagination */
+.dataTables_wrapper .dataTables_paginate {
+    text-align: left;
+}
+
+/* Fix margins */
+.m-l-10 {
+    margin-right: 10px !important;
+    margin-left: 0 !important;
+}
+
+.m-r-10 {
+    margin-left: 10px !important;
+    margin-right: 0 !important;
+}
+
+.m-t-15 {
+    margin-top: 15px;
+}
+
+/* Fix padding */
+.p-l-10 {
+    padding-right: 10px !important;
+    padding-left: 0 !important;
+}
+
+.p-r-10 {
+    padding-left: 10px !important;
+    padding-right: 0 !important;
+}
+
+/* Center logo */
+#logo {
+    display: block;
+    margin: 15px auto !important;
+}
+
+/* Fix card alignment */
+.card-box {
+    text-align: right;
+}
+
+/* Fix button icons */
+.glyphicon, .fa {
+    margin-left: 5px;
+    margin-right: 0;
+}
+
+/* Fix select dropdowns */
+select.form-control {
+    text-align: right;
+    direction: rtl;
+}
+
+/* Fix checkbox and radio alignment */
+input[type="checkbox"], input[type="radio"] {
+    margin-left: 5px;
+    margin-right: 0;
+}
+
+/* Fix date range picker */
+#reportrange {
+    direction: rtl;
+    text-align: right;
+}
+
+/* Fix form inputs */
+.form-control {
+    text-align: right;
+}
+
+/* Fix modal content */
+.modal-body {
+    text-align: right;
+}
+
+/* Fix number inputs to be LTR */
+input[type="number"],
+input[name="price"],
+input[name="cost"],
+input[name="quantity"],
+input[name="barcode"] {
+    direction: ltr;
+    text-align: left;
+}
+
